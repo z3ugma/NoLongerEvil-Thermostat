@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Controls</title>
+    <style>
+        body { 
+            font-family: system-ui, sans-serif; 
+            padding: 2em; 
+            background: #f5f5f5;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 { color: #333; }
+        .controls {
+            background: white;
+            padding: 1.5em;
+            border-radius: 8px;
+            margin-bottom: 2em;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button { 
+            font-size: 1em; 
+            padding: 0.6em 1.2em; 
+            margin-right: 1em;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button.danger { background: #dc3545; color: white; }
+        button.danger:hover { background: #c82333; }
+        button.primary { background: #007bff; color: white; }
+        button.primary:hover { background: #0056b3; }
+        button.warning { background: #ffc107; color: #333; }
+        button.warning:hover { background: #e0a800; }
+        .devices {
+            display: grid;
+            gap: 1em;
+        }
+        .device-card {
+            background: white;
+            padding: 1.5em;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .device-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 1em;
+        }
+        .device-info h3 {
+            margin: 0 0 0.3em 0;
+            color: #333;
+        }
+        .device-info .serial {
+            font-family: monospace;
+            color: #666;
+            font-size: 0.9em;
+        }
+        .device-info .model {
+            color: #888;
+            font-size: 0.85em;
+        }
+        .state-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1em;
+            margin-top: 1em;
+        }
+        .state-box {
+            background: #f8f9fa;
+            padding: 1em;
+            border-radius: 4px;
+            border-left: 3px solid #007bff;
+        }
+        .state-box h4 {
+            margin: 0 0 0.5em 0;
+            font-size: 0.9em;
+            color: #666;
+            text-transform: uppercase;
+        }
+        .state-box pre {
+            margin: 0;
+            font-size: 0.85em;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        .online { color: #28a745; font-weight: bold; }
+        .offline { color: #dc3545; font-weight: bold; }
+        .loading {
+            text-align: center;
+            padding: 2em;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>Device Database Admin</h1>
+    
+    <div class="controls">
+        <h2>Database Controls</h2>
+        <button class="danger" onclick="clearAll()">Clear Device Database</button>
+        <button class="primary" onclick="loadStubs()">Load Mock Devices</button>
+        <button class="warning" onclick="loadDevices()">Refresh Now</button>
+        <span id="auto-refresh-status" style="margin-left: 1em; color: #666; font-size: 0.9em;">
+            ⟳ Auto-refresh active
+        </span>
+    </div>
+
+    <div id="devices" class="devices">
+        <div class="loading">Loading devices...</div>
+    </div>
+
+    <script>
+        // BASE_URL is injected by the server from X-Ingress-Path header
+        const BASE_URL = '{{BASE_URL}}';
+        console.log('[ADMIN UI] Using BASE_URL:', BASE_URL);
+
+        let refreshInterval = null;
+
+        // Update the auto-refresh status indicator
+        function updateRefreshStatus(isActive) {
+            const statusEl = document.getElementById('auto-refresh-status');
+            if (isActive) {
+                statusEl.textContent = '⟳ Auto-refresh active (every 2s)';
+                statusEl.style.color = '#28a745';
+            } else {
+                statusEl.textContent = '⏸ Auto-refresh paused';
+                statusEl.style.color = '#999';
+            }
+        }
+
+        // Start/stop auto-refresh based on window focus
+        function startAutoRefresh() {
+            if (refreshInterval) return; // Already running
+            console.log('[ADMIN UI] Starting auto-refresh (every 2 seconds)');
+            updateRefreshStatus(true);
+            refreshInterval = setInterval(() => {
+                loadDevices();
+            }, 2000);
+        }
+
+        function stopAutoRefresh() {
+            if (!refreshInterval) return; // Already stopped
+            console.log('[ADMIN UI] Stopping auto-refresh');
+            updateRefreshStatus(false);
+            clearInterval(refreshInterval);
+            refreshInterval = null;
+        }
+
+        // Listen for window focus/blur events
+        window.addEventListener('focus', () => {
+            console.log('[ADMIN UI] Window gained focus');
+            startAutoRefresh();
+            loadDevices(); // Immediate refresh when regaining focus
+        });
+
+        window.addEventListener('blur', () => {
+            console.log('[ADMIN UI] Window lost focus');
+            stopAutoRefresh();
+        });
+
+        // Check if window is already focused on load
+        if (document.hasFocus()) {
+            startAutoRefresh();
+        }
+
+        async function loadDevices() {
+            const container = document.getElementById('devices');
+            container.innerHTML = '<div class="loading">Loading devices...</div>';
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/devices`);
+                const devices = await response.json();
+                
+                if (Object.keys(devices).length === 0) {
+                    container.innerHTML = '<div class="loading">No devices in database</div>';
+                    return;
+                }
+                
+                container.innerHTML = '';
+                for (const [serial, device] of Object.entries(devices)) {
+                    const card = createDeviceCard(serial, device);
+                    container.appendChild(card);
+                }
+            } catch (error) {
+                container.innerHTML = '<div class="loading">Error loading devices: ' + error.message + '</div>';
+            }
+        }
+
+        function createDeviceCard(serial, device) {
+            const card = document.createElement('div');
+            card.className = 'device-card';
+            
+            const statusClass = device.state.is_online ? 'online' : 'offline';
+            const statusText = device.state.is_online ? 'Online' : 'Offline';
+            
+            card.innerHTML = `
+                <div class="device-header">
+                    <div class="device-info">
+                        <h3>${device.name} <span class="${statusClass}">[${statusText}]</span></h3>
+                        <div class="serial">Serial: ${device.serial}</div>
+                        <div class="model">${device.manufacturer} - ${device.model}</div>
+                    </div>
+                    <button class="danger" onclick="deleteDevice('${serial}')">Delete</button>
+                </div>
+                <div class="state-section">
+                    <div class="state-box">
+                        <h4>Current State</h4>
+                        <pre>${JSON.stringify(device.state, null, 2)}</pre>
+                    </div>
+                    <div class="state-box" style="border-left-color: #6c757d;">
+                        <h4>Full Device Data</h4>
+                        <pre>${JSON.stringify(device, null, 2)}</pre>
+                    </div>
+                </div>
+            `;
+            
+            return card;
+        }
+
+        async function deleteDevice(serial) {
+            if (!confirm(`Delete device ${serial}?`)) return;
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/devices/${serial}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    await loadDevices();
+                } else {
+                    alert('Failed to delete device');
+                }
+            } catch (error) {
+                alert('Error deleting device: ' + error.message);
+            }
+        }
+
+        async function clearAll() {
+            if (!confirm('Clear all devices from database?')) return;
+            
+            try {
+                const response = await fetch(`${BASE_URL}/clear`, { method: 'POST' });
+                if (response.ok) {
+                    await loadDevices();
+                }
+            } catch (error) {
+                alert('Error clearing database: ' + error.message);
+            }
+        }
+
+        async function loadStubs() {
+            try {
+                const response = await fetch(`${BASE_URL}/load-stubs`, { method: 'POST' });
+                if (response.ok) {
+                    await loadDevices();
+                }
+            } catch (error) {
+                alert('Error loading stubs: ' + error.message);
+            }
+        }
+
+        // Initialize on page load
+        console.log('[ADMIN UI] Page loaded, initializing...');
+        loadDevices();
+        
+        // Always start auto-refresh on page load
+        // The blur event will stop it if the window loses focus
+        console.log('[ADMIN UI] Starting auto-refresh on page load');
+        startAutoRefresh();
+    </script>
+</body>
+</html>
