@@ -179,6 +179,9 @@ function publishMqttState(serial, deviceValue) {
   try {
     // Nest2MQTT
     publish(topics.mode_state, deviceValue.hvac_mode);
+    console.log(
+      `TARGET TEMPERATURETPYE: ${deviceValue.target_temperature_type}`
+    );
     publish(topics.temp_state, deviceValue.target_temperature);
     publish(topics.temp_low_state, deviceValue.target_temperature_low);
     publish(topics.temp_high_state, deviceValue.target_temperature_high);
@@ -292,6 +295,10 @@ async function handleTransportSubscribe(req, res, bodyBuffer) {
           object_timestamp: timestamp,
           value: mergedValue,
         };
+        console.log(
+          `[STATE UPDATE] Serial=${serial} Key=${deviceObjectKey}`,
+          JSON.stringify(mergedValue, null, 2)
+        );
 
         publishMqttState(serial, mergedValue);
       }
@@ -333,6 +340,11 @@ async function handleTransportSubscribe(req, res, bodyBuffer) {
         };
 
         global.nestDeviceState[serial][objectKey] = stored;
+
+        console.log(
+          `[STATE UPDATE] Serial=${serial} Key=${objectKey}`,
+          JSON.stringify(stored.value, null, 2)
+        );
 
         publishMqttState(serial, mergedValue);
       }
@@ -389,6 +401,11 @@ async function handleTransportSubscribe(req, res, bodyBuffer) {
 
     global.nestDeviceState[serial][objectKey] = updated;
 
+    console.log(
+      `[STATE UPDATE] Serial=${serial} Key=${objectKey}`,
+      JSON.stringify(updated.value, null, 2)
+    );
+
     publishMqttState(serial, mergedValue);
   }
 
@@ -440,6 +457,10 @@ async function handlePut(req, res, bodyBuffer) {
   let requestBody;
   try {
     requestBody = JSON.parse(bodyBuffer.toString("utf8"));
+    console.log(
+      `[PUT PAYLOAD] Serial=${serial || "UNKNOWN"}`,
+      JSON.stringify(requestBody, null, 2)
+    );
   } catch (e) {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Invalid JSON" }));
@@ -478,6 +499,11 @@ async function handlePut(req, res, bodyBuffer) {
           object_timestamp: requestTimestamp,
           value: mergedValue,
         };
+
+        console.log(
+          `[STATE UPDATE] Serial=${serial} Key=${deviceObjectKey}`,
+          JSON.stringify(mergedValue, null, 2)
+        );
 
         publishMqttState(serial, mergedValue);
       }
@@ -524,6 +550,11 @@ async function handlePut(req, res, bodyBuffer) {
             object_timestamp: newTimestamp,
             value: mergedValue,
           };
+
+          console.log(
+            `[STATE UPDATE] Serial=${serial} Key=${objectKey}`,
+            JSON.stringify(mergedValue, null, 2)
+          );
 
           publishMqttState(serial, mergedValue);
         }
@@ -1000,9 +1031,19 @@ async function handleCommand(req, res) {
 
     Object.assign(storedObj.value, valueUpdate);
 
+    console.log(
+      `[STATE UPDATE] Serial=${deviceSerial} Key=${objectKey}`,
+      JSON.stringify(storedObj.value, null, 2)
+    );
+
     const nowMs = Date.now();
     storedObj.object_revision = (storedObj.object_revision || 0) + 1;
     storedObj.object_timestamp = nowMs;
+
+    console.log(
+      `[STATE UPDATE] Serial=${deviceSerial} Key=${objectKey}`,
+      JSON.stringify(storedObj.value, null, 2)
+    );
 
     publishMqttState(deviceSerial, storedObj.value);
 
