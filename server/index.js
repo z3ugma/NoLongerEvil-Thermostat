@@ -24,6 +24,26 @@ global.nestDeviceState = {};
 global.activeUsers = {};
 global.pendingSubscribes = {};
 global.discoveredDevices = new Set();
+global.pendingCommands = {};
+
+function revertState(serial, objectKey, stateToRestore) {
+  // Check if the pending command still exists. It might have been cleared by a confirmation.
+  if (!global.pendingCommands[serial]) {
+    return;
+  }
+
+  console.log(`[COMMAND] Reverting state for ${serial} due to no confirmation.`);
+
+  // Restore the old state
+  global.nestDeviceState[serial][objectKey] = stateToRestore;
+
+  // Re-publish the old state to MQTT and persist it
+  publishMqttState(serial, stateToRestore.value);
+  persistStateToMqtt(serial, stateToRestore);
+  
+  // Clean up the pending command
+  delete global.pendingCommands[serial];
+}
 
 let initialStateLoaded = false;
 // Re-open the state loading window every time we connect to the broker
@@ -36,16 +56,13 @@ mqttClient.on('state_loaded', () => {
   initialStateLoaded = true;
 });
 
-// Listen for incoming MQTT messages to rehydrate state on startup from retained topics
+// Combined handler for MQTT messages (state rehydration and commands)
 mqttClient.on('message', (topic, payload) => {
-  // Only process retained state messages during the initial startup window
-  if (initialStateLoaded) {
-    return;
-  }
-
-  try {
-    const topicParts = topic.split('/');
-    if (topicParts.length === 3 && topicParts[0] === 'nest' && topicParts[2] === 'state') {
+  const topicParts = topic.split('/');
+  
+  // --- State Rehydration Logic (runs only during warm-up) ---
+  if (!initialStateLoaded && topicParts.length === 3 && topicParts[0] === 'nest' && topicParts[2] === 'state') {
+    try {
       const serial = topicParts[1];
       const stateObject = JSON.parse(payload.toString());
 
@@ -53,15 +70,106 @@ mqttClient.on('message', (topic, payload) => {
         if (!global.nestDeviceState[serial]) {
           global.nestDeviceState[serial] = {};
         }
-        
-        // Restore the full state object into the in-memory cache
         global.nestDeviceState[serial][stateObject.object_key] = stateObject;
-
         console.log(`[STATE RECOVERY] Hydrated state for ${serial} from MQTT topic: ${topic}`);
       }
+    } catch (err) {
+      console.error(`[MQTT] Error processing retained state message on topic ${topic}:`, err.message);
     }
-  } catch (err) {
-    console.error(`[MQTT] Error processing retained state message on topic ${topic}:`, err.message);
+    return; // Stop processing after handling rehydration
+  }
+
+  // --- Command Processing Logic (runs only after warm-up) ---
+  if (initialStateLoaded) {
+    try {
+      if (topicParts.length < 3 || topicParts[0] !== 'nest') return;
+
+      const serial = topicParts[1];
+      const command = topicParts[2];
+      const message = payload.toString();
+
+      console.log(`[MQTT] Command received: ${command} = ${message} for ${serial}`);
+
+      if (!global.nestDeviceState[serial]) {
+        console.warn(`[MQTT] Received command for unknown serial: ${serial}`);
+        return;
+      }
+
+      const deviceObjectKey = `device.${serial}`;
+      let deviceState = global.nestDeviceState[serial][deviceObjectKey];
+
+      if (!deviceState) {
+        // Create a default structure if it doesn't exist to prevent errors
+        deviceState = { object_key: deviceObjectKey, object_revision: 0, object_timestamp: Date.now(), value: {} };
+        global.nestDeviceState[serial][deviceObjectKey] = deviceState;
+      }
+
+      const existingValue = deviceState.value || {};
+      const mergedValue = { ...existingValue };
+      let stateChanged = false;
+
+      switch (command) {
+        case 'fan_mode_set': {
+          if (message === 'on') {
+            mergedValue.fan_control_state = true;
+            mergedValue.fan_current_speed = 'stage1';
+            mergedValue.fan_timer_timeout = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+            mergedValue.fan_mode = 'on';
+          } else if (message === 'auto') {
+            mergedValue.fan_control_state = false;
+            mergedValue.fan_timer_timeout = 0;
+            mergedValue.fan_mode = 'auto';
+          }
+          stateChanged = true;
+          break;
+        }
+      }
+
+      if (stateChanged) {
+        // --- Start of Command-and-Revert Logic ---
+        // 1. Snapshot the current state for potential rollback
+        const previousState = JSON.parse(JSON.stringify(deviceState));
+
+        // 2. Optimistically update the state
+        const newRevision = (deviceState.object_revision || 0) + 1;
+        const newTimestamp = Date.now();
+        const updatedState = {
+          object_key: deviceObjectKey,
+          object_revision: newRevision,
+          object_timestamp: newTimestamp,
+          value: mergedValue,
+        };
+        global.nestDeviceState[serial][deviceObjectKey] = updatedState;
+
+        // 3. Immediately publish to HA for responsiveness
+        persistStateToMqtt(serial, updatedState);
+        publishMqttState(serial, mergedValue);
+        notifyStateChange(serial, deviceObjectKey, updatedState);
+
+        // 4. Start a timer to revert if no confirmation is received
+        const timeoutId = setTimeout(() => {
+          revertState(serial, deviceObjectKey, previousState);
+        }, 5000); // 5-second window for confirmation
+
+        // 5. Store the pending command details
+        // Clear any previous command for this serial to avoid race conditions
+        if (global.pendingCommands[serial]) {
+            clearTimeout(global.pendingCommands[serial].timeoutId);
+        }
+        
+        const changedKeys = new Set(Object.keys(mergedValue).filter(key => JSON.stringify(mergedValue[key]) !== JSON.stringify(previousState.value[key])));
+
+        global.pendingCommands[serial] = {
+            timeoutId,
+            previousState,
+            expectedState: updatedState,
+            changedKeys: changedKeys,
+        };
+        // --- End of Command-and-Revert Logic ---
+      }
+    } catch (err) {
+      console.error(`[MQTT] Error processing command on topic ${topic}:`, err.message);
+    }
   }
 });
 
@@ -246,7 +354,13 @@ function publishMqttState(serial, deviceValue) {
     publish(topics.temp_low_state, deviceValue.target_temperature_low);
     publish(topics.temp_high_state, deviceValue.target_temperature_high);
     publish(topics.current_temp_state, deviceValue.current_temperature);
-    publish(topics.fan_mode_state, deviceValue.fan_mode);
+
+    // Determine fan mode for HA based on control state
+    let fanModeForHA = 'auto'; // Default to auto
+    if (deviceValue.fan_control_state === true) {
+      fanModeForHA = 'on';
+    }
+    publish(topics.fan_mode_state, fanModeForHA);
 
     // Nest uses 2/0 for auto_away?
     if (deviceValue.auto_away !== undefined) {
@@ -602,6 +716,32 @@ async function handlePut(req, res, bodyBuffer) {
           if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
             valuesChanged = true;
           }
+        }
+        
+        // Confirmation logic: If a command is pending, check if this PUT confirms it.
+        if (global.pendingCommands[serial]) {
+            const pending = global.pendingCommands[serial];
+            const expectedValue = pending.expectedState.value;
+
+            // Simple check: does the incoming value for the key we changed match the expected value?
+            // This is a simplistic check and might need to be more robust for complex objects.
+            let confirmed = true;
+            for (const key of Object.keys(expectedValue)) {
+                if (JSON.stringify(mergedValue[key]) !== JSON.stringify(expectedValue[key])) {
+                    // If any key we intended to change doesn't match, it's not a confirmation.
+                    // This handles cases where a different, unrelated state update comes in.
+                    if (pending.changedKeys.has(key)) {
+                       confirmed = false;
+                       break;
+                    }
+                }
+            }
+
+            if (confirmed) {
+                console.log(`[COMMAND] Confirmation received for ${serial}. Clearing revert timer.`);
+                clearTimeout(pending.timeoutId);
+                delete global.pendingCommands[serial];
+            }
         }
 
         if (valuesChanged) {
