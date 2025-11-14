@@ -61,6 +61,22 @@ client.on('connect', () => {
       );
     }
   });
+
+  // Subscribe to the wildcard state topic to receive retained state messages on startup.
+  const stateTopic = 'nest/+/state';
+  client.subscribe(stateTopic, (err) => {
+    if (err) {
+      console.error(`[MQTT] Failed to subscribe to state topic ${stateTopic}:`, err);
+    } else {
+      console.log(`[MQTT] Subscribed to state topic ${stateTopic} for state rehydration.`);
+    }
+  });
+
+  // Start a timer to define the state rehydration window.
+  setTimeout(() => {
+    console.log('[MQTT] Initial state loading window has closed.');
+    client.emit('state_loaded');
+  }, 5000);
 });
 
 module.exports = client;

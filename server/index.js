@@ -25,6 +25,46 @@ global.activeUsers = {};
 global.pendingSubscribes = {};
 global.discoveredDevices = new Set();
 
+let initialStateLoaded = false;
+// Re-open the state loading window every time we connect to the broker
+mqttClient.on('connect', () => {
+  console.log('[SYSTEM] MQTT connection established. Opening state loading window for 5 seconds.');
+  initialStateLoaded = false;
+});
+
+mqttClient.on('state_loaded', () => {
+  initialStateLoaded = true;
+});
+
+// Listen for incoming MQTT messages to rehydrate state on startup from retained topics
+mqttClient.on('message', (topic, payload) => {
+  // Only process retained state messages during the initial startup window
+  if (initialStateLoaded) {
+    return;
+  }
+
+  try {
+    const topicParts = topic.split('/');
+    if (topicParts.length === 3 && topicParts[0] === 'nest' && topicParts[2] === 'state') {
+      const serial = topicParts[1];
+      const stateObject = JSON.parse(payload.toString());
+
+      if (serial && stateObject && stateObject.object_key) {
+        if (!global.nestDeviceState[serial]) {
+          global.nestDeviceState[serial] = {};
+        }
+        
+        // Restore the full state object into the in-memory cache
+        global.nestDeviceState[serial][stateObject.object_key] = stateObject;
+
+        console.log(`[STATE RECOVERY] Hydrated state for ${serial} from MQTT topic: ${topic}`);
+      }
+    }
+  } catch (err) {
+    console.error(`[MQTT] Error processing retained state message on topic ${topic}:`, err.message);
+  }
+});
+
 function extractSerialFromAuthHeader(header) {
   if (!header || typeof header !== "string") return null;
   const match = header.match(/^Basic\s+(.+)$/i);
@@ -166,6 +206,17 @@ function publishHADiscovery(serial) {
   }
 }
 
+function persistStateToMqtt(serial, stateObject) {
+  if (!serial || !stateObject || !stateObject.object_key) return;
+
+  const stateTopic = `nest/${serial}/state`;
+  try {
+    mqttClient.publish(stateTopic, JSON.stringify(stateObject), { retain: true });
+  } catch (err) {
+    console.error(`[MQTT] Failed to persist state for ${serial} to ${stateTopic}:`, err.message);
+  }
+}
+
 function publishMqttState(serial, deviceValue) {
   if (!serial || !deviceValue) return;
 
@@ -304,6 +355,7 @@ async function handleTransportSubscribe(req, res, bodyBuffer) {
           object_timestamp: timestamp,
           value: mergedValue,
         };
+        persistStateToMqtt(serial, global.nestDeviceState[serial][deviceObjectKey]);
         console.log(
           `[STATE UPDATE] Serial=${serial} Key=${deviceObjectKey}`,
           JSON.stringify(mergedValue, null, 2)
@@ -349,6 +401,7 @@ async function handleTransportSubscribe(req, res, bodyBuffer) {
         };
 
         global.nestDeviceState[serial][objectKey] = stored;
+        persistStateToMqtt(serial, stored);
 
         console.log(
           `[STATE UPDATE] Serial=${serial} Key=${objectKey}`,
@@ -409,6 +462,7 @@ async function handleTransportSubscribe(req, res, bodyBuffer) {
     };
 
     global.nestDeviceState[serial][objectKey] = updated;
+    persistStateToMqtt(serial, updated);
 
     console.log(
       `[STATE UPDATE] Serial=${serial} Key=${objectKey}`,
@@ -508,6 +562,7 @@ async function handlePut(req, res, bodyBuffer) {
           object_timestamp: requestTimestamp,
           value: mergedValue,
         };
+        persistStateToMqtt(serial, global.nestDeviceState[serial][deviceObjectKey]);
 
         console.log(
           `[STATE UPDATE] Serial=${serial} Key=${deviceObjectKey}`,
@@ -559,6 +614,7 @@ async function handlePut(req, res, bodyBuffer) {
             object_timestamp: newTimestamp,
             value: mergedValue,
           };
+          persistStateToMqtt(serial, global.nestDeviceState[serial][objectKey]);
 
           console.log(
             `[STATE UPDATE] Serial=${serial} Key=${objectKey}`,
