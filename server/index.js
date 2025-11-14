@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const mqttClient = require("./lib/mqttClient"); // Replaced convex
-
+const SERVER_STATUS_TOPIC = mqttClient.SERVER_STATUS_TOPIC;
 const PROXY_PORT = Number(process.env.PROXY_PORT || 443);
 const CONTROL_PORT = Number(process.env.CONTROL_PORT || 8081);
 const ENTRY_KEY_TTL_SECONDS = Number.isFinite(
@@ -143,7 +143,8 @@ function publishHADiscovery(serial) {
     payload_on: "on",
     payload_off: "off",
 
-    availability_topic: topics.availability,
+    
+    availability_topic: SERVER_STATUS_TOPIC,
     payload_available: "online",
     payload_not_available: "offline",
 
