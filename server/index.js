@@ -178,10 +178,18 @@ function publishMqttState(serial, deviceValue) {
 
   try {
     // Nest2MQTT
-    publish(topics.mode_state, deviceValue.hvac_mode);
     console.log(
       `TARGET TEMPERATURETPYE: ${deviceValue.target_temperature_type}`
     );
+
+    if (deviceValue.target_temperature_type) {
+      let hvacMode = deviceValue.target_temperature_type;
+      if (hvacMode == "range") {
+        hvacMode = "heat_cool";
+      }
+      publish(topics.mode_state, hvacMode);
+    }
+
     publish(topics.temp_state, deviceValue.target_temperature);
     publish(topics.temp_low_state, deviceValue.target_temperature_low);
     publish(topics.temp_high_state, deviceValue.target_temperature_high);
@@ -1121,13 +1129,32 @@ async function handleMqttCommand(serial, command, value) {
   switch (command) {
     case "mode_set":
       valueUpdate.hvac_mode = value;
+      switch (value) {
+        case "heat":
+          valueUpdate.hvac_ac_state = false;
+          valueUpdate.target_temperature_type = "heat";
+          break;
+        case "cool":
+          valueUpdate.hvac_heater_state = false;
+          valueUpdate.target_temperature_type = "cool";
+          break;
+        case "heat_cool":
+          // valueUpdate.hvac_heater_state = true;
+          valueUpdate.target_temperature_type = "range";
+          break;
+        case "off":
+          valueUpdate.hvac_heater_state = false;
+          valueUpdate.hvac_ac_state = false;
+          valueUpdate.target_temperature_type = "off";
+          break;
+      }
       break;
 
     case "temperature_set":
       valueUpdate.target_temperature = parseFloat(value);
       // Try to preserve existing mode, default to 'heat'
-      valueUpdate.target_temperature_type =
-        global.nestDeviceState[serial][objectKey]?.value?.hvac_mode || "heat";
+      // valueUpdate.target_temperature_type =
+      //   global.nestDeviceState[serial][objectKey]?.value?.hvac_mode || "heat";
       break;
 
     case "target_temperature_low_set":
