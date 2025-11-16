@@ -1,2 +1,2 @@
-cd /app/server
+cd /app
 npm run dev:ts
