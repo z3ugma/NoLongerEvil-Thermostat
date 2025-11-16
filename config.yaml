@@ -1,0 +1,12 @@
+name: "Convex Backend"
+description: "A self-hosted Convex backend server."
+version: "0.1.13"
+slug: "convex_backend"
+init: false
+arch:
+  - aarch64
+  - amd64
+startup: services
+ports:
+  9755/tcp: 9755
+  9756/tcp: 9756
