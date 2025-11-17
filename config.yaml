@@ -1,6 +1,6 @@
 name: "Convex Backend"
 description: "A self-hosted Convex backend server."
-version: "0.1.13"
+version: "0.1.27"
 slug: "convex_backend"
 init: false
 arch:

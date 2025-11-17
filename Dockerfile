@@ -5,8 +5,14 @@ FROM $BUILD_FROM
 ENV CONVEX_RELEASE="precompiled-2025-10-29-a78fd1e"
 
 # We're on Debian (via build.yaml), so use apt-get
-# Install file for diagnostics and libc-bin for ldd
-RUN apt-get update && apt-get install -y curl unzip file libc-bin && rm -rf /var/lib/apt/lists/*
+# Install basic tools, then Node.js 22
+RUN apt-get update && apt-get install -y curl unzip file libc-bin ca-certificates gnupg && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
 # Download and extract the Convex backend binary based on the build architecture
 RUN \
@@ -43,6 +49,12 @@ ENV DEBUG_LOGGING=true
 
 # Convex URL
 ENV CONVEX_URL=http://127.0.0.1:9755
+
+# Copy server directory
+COPY server/ /server/
+
+# Remove .env.local as it contains conflicting CONVEX_DEPLOYMENT setting
+RUN rm -f /server/.env.local
 
 # Copy the startup script and make it executable
 COPY run.sh /
