@@ -5,7 +5,6 @@ import * as path from 'path';
 import * as url from 'url';
 import { environment, validateEnvironment } from './config/environment';
 import { initializeFileLogging } from './lib/logger';
-import { stateManager as deviceStateManager } from './services/stateManager';
 import { DeviceStateService } from './services/DeviceStateService';
 import { SubscriptionManager } from './services/SubscriptionManager';
 import { WeatherService } from './services/WeatherService';

@@ -15,6 +15,15 @@ import type {
 import { environment } from '../config/environment';
 import { AbstractDeviceStateManager } from './AbstractDeviceStateManager';
 
+interface DeviceRow {
+  serial: string;
+  object_key: string;
+  object_revision: number;
+  object_timestamp: number;
+  value: string; // The value is stored as a JSON string in the DB
+}
+
+
 export class SQLite3Service extends AbstractDeviceStateManager {
   private db: Database | null = null;
   private initPromise: Promise<Database | null> | null = null;
@@ -133,34 +142,35 @@ export class SQLite3Service extends AbstractDeviceStateManager {
       return null;
     }
 
-    try {
-      const result = db.get(
-        `SELECT serial, object_key, object_revision, object_timestamp, value
-         FROM device
-         WHERE serial = ? AND object_key = ?;`,
-        [serial, objectKey]
-        , (err, row) => {
-          if (err) {
-            throw err;
+    return new Promise((resolve, reject) => {
+      try {
+        db.get(
+          `SELECT serial, object_key, object_revision, object_timestamp, value
+           FROM device
+           WHERE serial = ? AND object_key = ?;`,
+          [serial, objectKey],
+          (err, row: DeviceRow) => {
+            if (err) {
+              console.error(`[SQLite3] Failed to get state for ${serial}/${objectKey}:`, err);
+              return reject(err);
+            }
+            if (row) {
+              resolve({
+                object_key: row.object_key,
+                object_revision: row.object_revision,
+                object_timestamp: row.object_timestamp,
+                value: JSON.parse(row.value),
+              });
+            } else {
+              resolve(null);
+            }
           }
-          if (row) {
-            console.log('Row fetched: ', row);
-            return {
-              object_key: row.object_key,
-              object_revision: row.object_revision,
-              object_timestamp: row.object_timestamp,
-              value: JSON.parse(row.value),
-            } as DeviceObject;
-          } else {
-            return null;
-          }
-        }
-      );
-      return result || null;
-    } catch (error) {
-      console.error(`[SQLite3] Failed to get state for ${serial}/${objectKey}:`, error);
-      return null;
-    }
+        );
+      } catch (error) {
+        console.error(`[SQLite3] Exception during getState for ${serial}/${objectKey}:`, error);
+        reject(error);
+      }
+    });
   }
 
   /**
