@@ -344,18 +344,32 @@ launch_installer() {
 }
 
 setup_selfhost() {
-  # Here is where we can put the different supported backend setup.
-  # Right now only Convex...
-  local which_backend="CONVEX"
+  echo ""
+  echo "[→] Creating a fresh .env.local configuration file..."
+  cp "$ENV_TEMPLATE" "$SERVER_DIR/.env.local"
+  echo ""
 
   # Question here on which setup the user wants to use
-  # which_backend=$(prompt_value "Which backend do you want to use?" "CONVEX")
-  case $which_backend in
+  which_backend=$(prompt_value "Which backend do you want to use? (CONVEX, MQTT, SQLite)" "CONVEX")
+  # Convert to uppercase to handle case-insensitivity (e.g., sqlite, SQLite, SQLITE)
+  which_backend_upper=${which_backend^^}
+
+  local compose_command="docker compose up -d"
+
+  case "$which_backend_upper" in
     CONVEX)
       setup_convex
+      compose_command="docker compose --profile convex up -d"
       ;;
     MQTT)
       setup_mqtt
+      ;;
+    SQLITE)
+      setup_sqlite
+      ;;
+    *)
+      echo "Invalid backend selected: '$which_backend'. Please choose from CONVEX, MQTT, or SQLite." >&2
+      exit 1
       ;;
   esac
   
@@ -364,12 +378,18 @@ setup_selfhost() {
   echo "Self-Host setup complete using $which_backend backend. You can "
   echo "now run with docker compose."
   echo ""
-  echo "  docker compose up -d"
+  echo "  $compose_command"
   echo ""
 }
 
 setup_convex() {
   local generated_admin_key=""
+
+  # Ensure .env.local exists before trying to update it
+  if [ ! -f "$SERVER_DIR/.env.local" ]; then
+    cp "$ENV_TEMPLATE" "$SERVER_DIR/.env.local"
+  fi
+  update_env_value "SQLITE3_ENABLED" "false"
 
   if [ -d $ROOT_DIR/convex ]; then
     if prompt_yes_no "Convex data folder already exists. Do you want to recreate?" "n"; then
@@ -407,6 +427,24 @@ setup_convex() {
 
 setup_mqtt() {
   echo "Setup MQTT"
+}
+
+setup_sqlite() {
+  echo "[→] Configuring server for SQLite backend..."
+  
+  # Ensure the data directory exists where the SQLite DB will be stored.
+  # This directory is mounted as a volume in docker-compose.yml.
+  mkdir -p "$ROOT_DIR/data"
+
+  # Update the .env file to set the state manager to SQLite.
+  # The server code will use this variable to initialize the correct state manager.
+  if [ ! -f "$SERVER_DIR/.env.local" ]; then
+    cp "$ENV_TEMPLATE" "$SERVER_DIR/.env.local"
+  fi
+  update_env_value "SQLITE3_ENABLED" "true"
+  
+  echo "[✓] Server configured to use SQLite. The database will be created at '$ROOT_DIR/data/nolongerevil.db'."
+  echo ""
 }
 
 build_server_image() {

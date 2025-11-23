@@ -16,6 +16,7 @@ services:
   backend:
     # Change this to :${REV} if you want to pin to a specific version
     image: ghcr.io/get-convex/convex-backend:latest
+    profiles: ["convex"]
     stop_grace_period: 10s
     stop_signal: SIGINT
     ports:
@@ -54,13 +55,14 @@ services:
       - S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET
 
     healthcheck:
-      test: curl -f http://localhost:3210/version
+      test: curl -f http://backend:3210/version
       interval: 5s
       start_period: 10s
 
   dashboard:
     # Change this to :${REV} if you want to pin to a specific version
     image: ghcr.io/get-convex/convex-dashboard:latest
+    profiles: ["convex"]
     stop_grace_period: 10s
     stop_signal: SIGINT
     ports:
