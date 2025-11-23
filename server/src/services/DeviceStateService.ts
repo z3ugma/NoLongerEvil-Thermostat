@@ -29,6 +29,26 @@ export class DeviceStateService {
   }
 
   /**
+   * Load all device states from the state manager into the cache.
+   * This should be called once at server startup.
+   */
+  async initialize(): Promise<void> {
+    console.log('[DeviceStateService] Initializing and warming up cache...');
+    try {
+      this.cache = await this.deviceStateManager.getAllState();
+      const deviceCount = Object.keys(this.cache).length;
+      console.log(`[DeviceStateService] Cache warmed with state for ${deviceCount} device(s).`);
+      console.log(`[DeviceStateService] CACHE KEYS: [${Object.keys(this.cache).join(', ')}]`);
+    } catch (error) {
+      console.error('[DeviceStateService] CRITICAL: Failed to initialize state from database:', error);
+      // Depending on the desired behavior, we might want to exit the process
+      // if the initial state load fails. For now, we log a critical error.
+      this.cache = {}; // Ensure cache is in a clean state
+    }
+  }
+
+
+  /**
    * Get a single object for a device
    * - Checks memory cache first
    * - Falls back to Convex if not in cache

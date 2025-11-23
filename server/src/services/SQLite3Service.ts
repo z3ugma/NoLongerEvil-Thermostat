@@ -182,13 +182,34 @@ export class SQLite3Service extends AbstractDeviceStateManager {
       return {};
     }
 
-    try {
-      const result = await db.query('device:getAllState' as any);
-      return result?.deviceState || {};
-    } catch (error) {
-      console.error('[SQLite3] Failed to get all state:', error);
-      return {};
-    }
+    return new Promise((resolve, reject) => {
+      db.all(`SELECT serial, object_key, object_revision, object_timestamp, value FROM device`, [], (err, rows: DeviceRow[]) => {
+        if (err) {
+          console.error('[SQLite3] Failed to get all state:', err);
+          return reject(err);
+        }
+
+        try {
+          const deviceStateStore = rows.reduce<DeviceStateStore>((acc, row) => {
+            if (!acc[row.serial]) {
+              acc[row.serial] = {};
+            }
+            acc[row.serial][row.object_key] = {
+              object_key: row.object_key,
+              object_revision: row.object_revision,
+              object_timestamp: row.object_timestamp,
+              value: JSON.parse(row.value),
+            };
+            return acc;
+          }, {});
+
+          resolve(deviceStateStore);
+        } catch (parseError) {
+          console.error('[SQLite3] Failed to parse database rows into state store:', parseError);
+          reject(parseError);
+        }
+      });
+    });
   }
 
   /**
@@ -264,18 +285,13 @@ export class SQLite3Service extends AbstractDeviceStateManager {
 
   /**
    * Ensure device alert dialog exists
+   * TODO: Implement this for SQLite if needed. For now, it's a no-op.
    */
   async ensureDeviceAlertDialog(serial: string): Promise<void> {
-    const db = await this.getDb();
-    if (!db) {
-      return;
-    }
-
-    try {
-      await db.mutation('users:ensureDeviceAlertDialog' as any, { serial });
-    } catch (error) {
-      console.error(`[SQLite3] Failed to ensure alert dialog for ${serial}:`, error);
-    }
+    // This was a Convex-specific function. We can implement the equivalent
+    // logic here if we discover it's necessary for the Nest protocol.
+    console.log(`[SQLite3] STUB: ensureDeviceAlertDialog for ${serial}`);
+    return Promise.resolve();
   }
 
   /**

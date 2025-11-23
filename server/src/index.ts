@@ -273,6 +273,8 @@ function createHttpsServer(): https.Server | null {
  * Start servers
  */
 async function startServers(): Promise<void> {
+  await deviceStateService.initialize();
+  
   const httpsServer = createHttpsServer();
   if (httpsServer) {
     httpsServer.listen(environment.PROXY_PORT, () => {
