@@ -40,6 +40,21 @@ export class SQLite3Service extends AbstractDeviceStateManager {
         value TEXT NOT NULL,
         PRIMARY KEY (serial, object_key)
       );`,
+      `CREATE TABLE IF NOT EXISTS integrations (
+        userId TEXT NOT NULL,
+        type TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        config TEXT NOT NULL,
+        PRIMARY KEY (userId, type)
+      );`,
+      `CREATE TABLE IF NOT EXISTS entryKeys (
+        code TEXT PRIMARY KEY,
+        serial TEXT NOT NULL,
+        createdAt INTEGER NOT NULL,
+        expiresAt INTEGER NOT NULL,
+        claimedBy TEXT,
+        claimedAt INTEGER
+      );`,
     ];
 
     for (const stmt of schemaStatements) {
@@ -221,16 +236,74 @@ export class SQLite3Service extends AbstractDeviceStateManager {
       return null;
     }
 
-    try {
-      const result = await db.mutation('users:generateEntryKey' as any, {
-        serial,
-        ttlSeconds,
+    const randomEntryKey = (): string => {
+      const digits = Math.floor(Math.random() * 1000)
+        .toString()
+        .padStart(3, '0');
+      const letters = Array.from({ length: 4 }, () =>
+        String.fromCharCode(65 + Math.floor(Math.random() * 26))
+      ).join('');
+      return `${digits}${letters}`;
+    };
+
+    const ttl = ttlSeconds ?? 3600;
+    const nowMs = Date.now();
+    const expiresAt = nowMs + ttl * 1000;
+
+    return new Promise((resolve, reject) => {
+      db.serialize(() => {
+        db.run(`DELETE FROM entryKeys WHERE serial = ?`, [serial], async (err) => {
+          if (err) {
+            console.error(`[SQLite3] Failed to delete existing entry keys for ${serial}:`, err);
+            return reject(err);
+          }
+
+          let attempts = 0;
+          let code: string | undefined;
+
+          while (attempts < 20) {
+            attempts++;
+            const candidateCode = randomEntryKey();
+
+            const row = await new Promise<any>((res, rej) => {
+              db.get(`SELECT * FROM entryKeys WHERE code = ?`, [candidateCode], (err, row) => {
+                if (err) return rej(err);
+                res(row);
+              });
+            });
+            
+            if (!row) {
+              code = candidateCode;
+              break;
+            }
+
+            const isExpired = row.expiresAt < nowMs;
+            if (isExpired && !row.claimedBy) {
+              code = candidateCode;
+              break;
+            }
+          }
+
+          if (!code) {
+            const error = new Error('Unable to allocate entry key');
+            console.error(`[SQLite3] Failed to generate entry key for ${serial}:`, error);
+            return reject(error);
+          }
+
+          db.run(
+            `INSERT INTO entryKeys (code, serial, createdAt, expiresAt) VALUES (?, ?, ?, ?)`,
+            [code, serial, nowMs, expiresAt],
+            (err) => {
+              if (err) {
+                console.error(`[SQLite3] Failed to insert new entry key for ${serial}:`, err);
+                return reject(err);
+              }
+              resolve({ code: code!, expiresAt });
+            }
+          );
+        });
       });
-      return result;
-    } catch (error) {
-      console.error(`[SQLite3] Failed to generate entry key for ${serial}:`, error);
-      return null;
-    }
+    });
   }
 
   /**
@@ -385,7 +458,6 @@ export class SQLite3Service extends AbstractDeviceStateManager {
 
   /**
    * Get all enabled MQTT integrations for loading by IntegrationManager
-   * Uses secure action to decrypt passwords
    */
   async getAllEnabledMqttIntegrations(): Promise<Array<{ userId: string; config: any }>> {
     const db = await this.getDb();
@@ -393,13 +465,30 @@ export class SQLite3Service extends AbstractDeviceStateManager {
       return [];
     }
 
-    try {
-      const integrations = await db.action('integrations_actions:getAllEnabledMqttIntegrationsSecure' as any, {});
-      return integrations || [];
-    } catch (error) {
-      console.error('[SQLite3] Failed to fetch enabled MQTT integrations:', error);
-      return [];
-    }
+    return new Promise((resolve, reject) => {
+      const query = `
+        SELECT userId, config 
+        FROM integrations 
+        WHERE type = 'mqtt' AND enabled = 1;
+      `;
+      db.all(query, [], (err, rows: Array<{ userId: string; config: string }>) => {
+        if (err) {
+          console.error('[SQLite3] Failed to fetch enabled MQTT integrations:', err);
+          return reject(err);
+        }
+
+        try {
+          const result = rows.map(row => ({
+            userId: row.userId,
+            config: JSON.parse(row.config),
+          }));
+          resolve(result);
+        } catch (parseError) {
+          console.error('[SQLite3] Failed to parse integration config from database:', parseError);
+          reject(parseError);
+        }
+      });
+    });
   }
 
   /**
