@@ -134,6 +134,7 @@ export interface EnvironmentConfig {
   SUBSCRIPTION_TIMEOUT_MS: number;
   MAX_SUBSCRIPTIONS_PER_DEVICE: number;
   DEBUG_LOGGING: boolean;
+  DEBUG_LOGS_DIR: string;
 }
 
 /**

@@ -2,20 +2,19 @@
  * File Logger Utility
  *
  * When DEBUG_LOGGING=true, logs are written to both console and file.
- * Log files are stored in server/logs/ directory.
+ * Log files are stored in the configured debug logs directory.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { environment } from '../config/environment';
 
-const LOG_DIR = path.join(__dirname, '../../logs');
 const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_LOG_FILES = 5;
 
 if (environment.DEBUG_LOGGING) {
-  if (!fs.existsSync(LOG_DIR)) {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
+  if (!fs.existsSync(environment.DEBUG_LOGS_DIR)) {
+    fs.mkdirSync(environment.DEBUG_LOGS_DIR, { recursive: true });
   }
 }
 
@@ -24,7 +23,7 @@ if (environment.DEBUG_LOGGING) {
  */
 function getCurrentLogFile(): string {
   const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-  return path.join(LOG_DIR, `server-${date}.log`);
+  return path.join(environment.DEBUG_LOGS_DIR, `server-${date}.log`);
 }
 
 /**
@@ -51,12 +50,12 @@ function rotateLogIfNeeded(logFile: string): void {
  */
 function cleanupOldLogs(): void {
   try {
-    const files = fs.readdirSync(LOG_DIR)
+    const files = fs.readdirSync(environment.DEBUG_LOGS_DIR)
       .filter(f => f.startsWith('server-') && f.endsWith('.log'))
       .map(f => ({
         name: f,
-        path: path.join(LOG_DIR, f),
-        mtime: fs.statSync(path.join(LOG_DIR, f)).mtime.getTime()
+        path: path.join(environment.DEBUG_LOGS_DIR, f),
+        mtime: fs.statSync(path.join(environment.DEBUG_LOGS_DIR, f)).mtime.getTime()
       }))
       .sort((a, b) => b.mtime - a.mtime);
 
@@ -129,7 +128,7 @@ console.warn = function(...args: any[]) {
  */
 export function initializeFileLogging(): void {
   if (environment.DEBUG_LOGGING) {
-    console.log(`[Logger] File logging enabled - writing to ${LOG_DIR}`);
+    console.log(`[Logger] File logging enabled - writing to ${environment.DEBUG_LOGS_DIR}`);
     console.log(`[Logger] Log rotation: ${MAX_LOG_SIZE / 1024 / 1024}MB per file, keeping ${MAX_LOG_FILES} files`);
   }
 }

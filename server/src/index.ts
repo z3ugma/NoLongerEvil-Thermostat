@@ -19,13 +19,14 @@ import { handleWeather } from './routes/nest/weather';
 import { handleCommand } from './routes/control/command';
 import { handleStatus, handleDevices, handleNotifyDevice } from './routes/control/status';
 import { normalizeUrl } from './middleware/urlNormalizer';
-import { logRequest, createResponseLogger } from './middleware/debugLogger';
+import { logRequest, createResponseLogger, initDebugLogsDir } from './middleware/debugLogger';
 import { IntegrationManager } from './integrations/IntegrationManager';
 import { AbstractDeviceStateManager } from './services/AbstractDeviceStateManager';
 import { SQLite3Service } from './services/SQLite3Service';
 validateEnvironment();
 
 initializeFileLogging();
+initDebugLogsDir();
 
 const deviceStateManager: AbstractDeviceStateManager = new SQLite3Service()
 const deviceStateService = new DeviceStateService(deviceStateManager);

@@ -63,6 +63,7 @@ export const environment: EnvironmentConfig = {
   MAX_SUBSCRIPTIONS_PER_DEVICE: getEnvInt('MAX_SUBSCRIPTIONS_PER_DEVICE', 100),
 
   DEBUG_LOGGING: getEnvBoolean('DEBUG_LOGGING', false),
+  DEBUG_LOGS_DIR: getEnvString('DEBUG_LOGS_DIR', './data/debug-logs'),
 
   SQLITE3_ENABLED: getEnvBoolean('SQLITE3_ENABLED', true),
   SQLITE3_DB_PATH: getEnvString('SQLITE3_DB_PATH', './data/database.sqlite'),
@@ -109,4 +110,7 @@ export function validateEnvironment(): void {
   }
   console.log(`[Config] TLS Certificates: ${environment.CERT_DIR || 'Not configured (HTTP only)'}`);
   console.log(`[Config] Debug Logging: ${environment.DEBUG_LOGGING ? 'Enabled' : 'Disabled'}`);
+  if (environment.DEBUG_LOGGING) {
+    console.log(`[Config] Debug Logs Directory: ${environment.DEBUG_LOGS_DIR}`);
+  }
 }
