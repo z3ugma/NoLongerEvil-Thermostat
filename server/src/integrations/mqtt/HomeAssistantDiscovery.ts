@@ -72,11 +72,12 @@ export function buildClimateDiscovery(
     config.temperature_high_state_topic = `${topicPrefix}/${serial}/ha/target_temperature_high`;
     config.temperature_low_command_topic = `${topicPrefix}/${serial}/ha/target_temperature_low/set`;
     config.temperature_low_state_topic = `${topicPrefix}/${serial}/ha/target_temperature_low`;
-  } else {
-    // Heat/cool/off mode: only include single temperature topic
+  } else if (currentMode !== 'off') {
+    // Heat/cool mode: only include single temperature topic
     config.temperature_command_topic = `${topicPrefix}/${serial}/ha/target_temperature/set`;
     config.temperature_state_topic = `${topicPrefix}/${serial}/ha/target_temperature`;
   }
+  // Off mode: no temperature topics at all
 
   // Add remaining common config
   return {
