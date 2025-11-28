@@ -45,6 +45,10 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "notarize": true,
+      "binaries": [
+        "resources/binaries/omap_loader-macos-x64",
+        "resources/binaries/omap_loader-macos-arm64"
+      ],
       "target": [
         {
           "target": "zip",
