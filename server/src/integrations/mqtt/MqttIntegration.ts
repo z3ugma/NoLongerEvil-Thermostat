@@ -550,6 +550,7 @@ export class MqttIntegration extends BaseIntegration {
       await this.publish(`${prefix}/${serial}/ha/mode`, haMode, { retain: true, qos: 0 });
 
       const action = await deriveHvacAction(serial, this.deviceState);
+      console.log(`[MQTT:${this.userId}] HVAC action for ${serial}: ${action} (heater: ${shared.hvac_heater_state}, ac: ${shared.hvac_ac_state}, fan: ${shared.hvac_fan_state})`);
       await this.publish(`${prefix}/${serial}/ha/action`, action, { retain: true, qos: 0 });
 
       const fanMode = device.fan_timer_active || device.fan_control_state ? 'on' : 'auto';
