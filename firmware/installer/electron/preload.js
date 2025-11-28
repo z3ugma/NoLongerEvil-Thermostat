@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPlatformInfo: () => ipcRenderer.invoke('get-platform-info'),
   requestSudo: () => ipcRenderer.invoke('request-sudo'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  selectFirmwareFile: (fileType) => ipcRenderer.invoke('select-firmware-file', fileType),
   onInstallationProgress: (callback) => {
     ipcRenderer.on('installation-progress', (event, progress) => callback(progress));
   },

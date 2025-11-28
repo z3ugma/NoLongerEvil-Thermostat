@@ -5,12 +5,68 @@
   "main": "electron/main.js",
   "author": "NoLongerEvil",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codykociemba/NoLongerEvil-Thermostat"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run build:ts && vite build",
+    "build:ts": "tsc",
     "electron:dev": "concurrently --kill-others \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
-    "package": "vite build && electron-forge package",
-    "make": "vite build && electron-forge make"
+    "postinstall": "electron-builder install-app-deps",
+    "package": "npm run build && electron-builder --mac --linux --publish never",
+    "package:mac": "npm run build && electron-builder --mac --publish never",
+    "package:linux": "npm run build && electron-builder --linux --publish never"
+  },
+  "build": {
+    "appId": "com.nolongerevil.installer",
+    "productName": "NoLongerEvil Installer",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "dist/**/*",
+      "dist-electron/**/*",
+      "resources/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/usb/**/*",
+      "resources/firmware/**/*"
+    ],
+    "artifactName": "nolongerevil-installer-${os}-${arch}.${ext}",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "codykociemba",
+        "repo": "NoLongerEvil-Thermostat"
+      }
+    ]
   },
   "dependencies": {
     "react": "^18.2.0",
@@ -19,18 +75,18 @@
     "usb": "^2.11.0"
   },
   "devDependencies": {
-    "@electron-forge/cli": "^7.10.2",
-    "@electron-forge/maker-dmg": "^7.10.2",
-    "@electron-forge/maker-zip": "^7.10.2",
-    "@electron-forge/plugin-auto-unpack-natives": "^7.10.2",
+    "@types/node": "^24.10.1",
+    "@types/usb": "^2.0.4",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
     "electron": "^28.0.0",
     "electron-builder": "^26.0.12",
+    "electron-rebuild": "^3.2.9",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
+    "typescript": "^5.9.3",
     "vite": "^5.0.8",
     "wait-on": "^7.2.0"
   }

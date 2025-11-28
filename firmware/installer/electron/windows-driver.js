@@ -23,15 +23,14 @@ function getResourcePath(relativePath) {
   return path.join(__dirname, '..', relativePath);
 }
 
-function getWdiPath() {
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-  const wdiPath = getResourcePath(path.join('resources', 'wdi', arch, 'wdi-simple.exe'));
+function getWinUsbInfPath() {
+  const infPath = getResourcePath(path.join('resources', 'binaries', 'omap_winusb', 'omap_winusb.inf'));
 
-  if (!fs.existsSync(wdiPath)) {
-    throw new Error(`wdi-simple.exe not found at ${wdiPath}`);
+  if (!fs.existsSync(infPath)) {
+    throw new Error(`omap_winusb.inf not found at ${infPath}`);
   }
 
-  return wdiPath;
+  return infPath;
 }
 
 async function checkDriverInstalled() {
@@ -80,15 +79,20 @@ async function checkDriverInstalled() {
           console.log('Found DFU devices:', deviceArray);
 
           const hasWinUSBDriver = deviceArray.some(d => {
-            const isOK = d.Status === 'OK';
             const hasWinUSB = d.Service && d.Service.toLowerCase() === 'winusb';
+            const isOK = d.Status === 'OK';
+            const isUnknown = d.Status === 'Unknown';
             const friendlyName = d.FriendlyName || '';
             const deviceClass = d.Class || '';
-            const isUSBDevice = deviceClass === 'USB' || friendlyName.includes('DFU') || friendlyName.includes('USB') || friendlyName.includes('Nest');
+            const isUSBDevice = deviceClass === 'USB' || deviceClass === 'USBDevice' || friendlyName.includes('DFU') || friendlyName.includes('USB') || friendlyName.includes('Nest') || friendlyName.includes('OMAP');
 
-            console.log(`Device check: Status=${d.Status}, Service=${d.Service}, Class=${deviceClass}, FriendlyName=${friendlyName}, Match=${isOK && (hasWinUSB || isUSBDevice)}`);
+            // Accept device if WinUSB service is bound, even if status is Unknown
+            // Status 'Unknown' can happen with unsigned drivers but the device still works
+            const isReady = hasWinUSB && (isOK || (isUnknown && isUSBDevice));
 
-            return isOK && (hasWinUSB || isUSBDevice);
+            console.log(`Device check: Status=${d.Status}, Service=${d.Service}, Class=${deviceClass}, FriendlyName=${friendlyName}, Match=${isReady}`);
+
+            return isReady;
           });
 
           resolve({
@@ -119,58 +123,51 @@ async function installWinUSBDriver() {
 
   installationPromise = new Promise((resolve, reject) => {
     try {
-      const wdiPath = getWdiPath();
-      const os = require('os');
-      const tempDir = path.join(os.tmpdir(), `wdi_${Date.now()}`);
+      const infPath = getWinUsbInfPath();
+      const { exec } = require('child_process');
 
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
-      }
+      console.log('Installing WinUSB driver using pnputil...');
+      console.log('INF file:', infPath);
 
-      const args = [
-        '--vid', DFU_VID,
-        '--pid', DFU_PID,
-        '--type', '0',
-        '--name', 'Nest DFU Interface',
-        '--dest', tempDir,
-        '--timeout', '60000',
-        '--progressbar=no'
-      ];
+      // Use pnputil to add the driver to the Windows driver store
+      // /add-driver adds the driver package
+      // /install also installs the driver on matching devices
+      // /force-if-driver-is-not-better allows installing unsigned/older drivers
+      const command = `pnputil /add-driver "${infPath}" /install /force-if-driver-is-not-better`;
 
-      console.log('Installing WinUSB driver for DFU device...');
-      console.log('Command:', wdiPath, args.join(' '));
-      console.log('Temp dir:', tempDir);
+      console.log('Command:', command);
 
-      execFile(wdiPath, args, { windowsHide: true, cwd: tempDir }, (error, stdout, stderr) => {
+      exec(command, (error, stdout, stderr) => {
         const output = stdout + stderr;
-        console.log('wdi-simple output:', output);
-
-        try {
-          if (fs.existsSync(tempDir)) {
-            fs.rmSync(tempDir, { recursive: true, force: true });
-          }
-        } catch (cleanupError) {
-          console.error('Failed to cleanup temp directory:', cleanupError);
-        }
+        console.log('pnputil output:', output);
 
         installationInProgress = false;
         installationPromise = null;
 
         if (error) {
-          console.error('wdi-simple error:', error);
+          console.error('pnputil error:', error);
           console.error('stdout:', stdout);
           console.error('stderr:', stderr);
 
-          if (output.includes('timeout') || output.includes('not found') || output.includes('no device')) {
-            reject(new Error(`Device not found. Make sure the Nest is in DFU mode (reboot it while plugged in via USB). The device enters DFU mode for only a few seconds during boot.`));
-            return;
-          }
-
-          if (output.includes('already') || output.includes('success') || error.code === 0) {
+          // Check if driver was already installed (not a fatal error)
+          if (output.includes('already') || output.includes('The specified driver package is already installed')) {
+            console.log('Driver already in store, marking as installed');
             driverWasInstalled = true;
             resolve({
               success: true,
-              message: 'WinUSB driver already installed or successfully installed',
+              message: 'WinUSB driver already installed in Windows driver store',
+              output
+            });
+            return;
+          }
+
+          // Check for success keywords despite error code
+          if (output.includes('Successfully') || output.includes('Published name')) {
+            console.log('Driver installed successfully despite error code');
+            driverWasInstalled = true;
+            resolve({
+              success: true,
+              message: 'WinUSB driver installed successfully',
               output
             });
             return;
@@ -180,12 +177,12 @@ async function installWinUSBDriver() {
           return;
         }
 
-        console.log('WinUSB driver successfully installed and bound to device');
+        console.log('WinUSB driver successfully installed to driver store');
         driverWasInstalled = true;
 
         resolve({
           success: true,
-          message: 'WinUSB driver installed and bound to DFU device',
+          message: 'WinUSB driver installed to Windows driver store',
           output
         });
       });

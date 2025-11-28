@@ -9,7 +9,7 @@ const INSTALL_STAGES = {
   COMPLETE: 'complete',
 };
 
-function InstallScreen({ systemInfo, onSuccess, onError, onBack }) {
+function InstallScreen({ systemInfo, generation, customFiles, onSuccess, onError, onBack }) {
   const [stage, setStage] = useState(INSTALL_STAGES.WAITING);
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState('');
@@ -73,10 +73,13 @@ function InstallScreen({ systemInfo, onSuccess, onError, onBack }) {
     setStage(INSTALL_STAGES.WAITING);
     setMessage('Installation in progress...');
 
-    console.log('Starting firmware installation...');
+    console.log('Starting firmware installation...', 'Generation:', generation);
 
     try {
-      const result = await window.electronAPI.installFirmware();
+      const result = await window.electronAPI.installFirmware({
+        generation,
+        customFiles
+      });
 
       console.log('Installation result:', result);
 
@@ -167,6 +170,23 @@ function InstallScreen({ systemInfo, onSuccess, onError, onBack }) {
                 <p className="text-sm text-yellow-400">
                   Waiting for device to enter DFU mode...
                 </p>
+              )}
+              {customFiles && (
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+                  <div className="flex gap-2">
+                    <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div className="text-xs text-slate-300">
+                      <p className="font-semibold text-blue-400 mb-1">Using Custom Firmware Files:</p>
+                      <ul className="space-y-0.5 list-disc list-inside">
+                        {customFiles.xload && <li>{customFiles.xload.split('/').pop()}</li>}
+                        {customFiles.uboot && <li>{customFiles.uboot.split('/').pop()}</li>}
+                        {customFiles.uimage && <li>{customFiles.uimage.split('/').pop()}</li>}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 

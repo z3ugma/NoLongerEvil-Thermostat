@@ -15,10 +15,17 @@ $DOCKER_CMD build --no-cache -t nest-firmware-builder .
 USER_ID=$(id -u)
 GROUP_ID=$(id -g)
 
-DOCKER_FLAGS="--rm"
-if [[ " $* " =~ " --debug-pause " ]]; then
-    echo "[→] Debug mode enabled - running in interactive mode"
-    DOCKER_FLAGS="-it --rm"
+DOCKER_FLAGS="-it --rm"
+if [[ " $* " =~ " --non-interactive " ]] || [[ " $* " =~ " --yes " ]] || [[ " $* " =~ " -y " ]]; then
+    # Only disable interactive mode if explicitly requested
+    if [[ ! " $* " =~ " --debug-pause " ]]; then
+        DOCKER_FLAGS="--rm"
+        echo "[→] Running in non-interactive mode"
+    else
+        echo "[→] Debug mode enabled - running in interactive mode despite --yes flag"
+    fi
+else
+    echo "[→] Running in interactive mode"
 fi
 
 echo ""
@@ -36,12 +43,28 @@ MSYS_NO_PATHCONV=1 $DOCKER_CMD run $DOCKER_FLAGS \
     nest-firmware-builder \
     bash -c "
       echo '[→] Copying scripts to container...'
-      cp -r /work/scripts /build/
+      if [ -d /work/scripts ]; then
+        cp -r /work/scripts /build/
+        echo '[✓] Scripts copied'
+      else
+        echo '[!] Warning: /work/scripts not found'
+        ls -la /work/
+        exit 1
+      fi
+
       mkdir -p /build/deps
       cp /work/deps/*.cpio /build/deps/ 2>/dev/null || true
       cp /work/deps/*.ppm /build/deps/ 2>/dev/null || true
       cp /work/*.png /build/ 2>/dev/null || true
-      cp /work/build.sh /build/ 2>/dev/null || true
+
+      if [ -f /work/build.sh ]; then
+        cp /work/build.sh /build/
+        echo '[✓] build.sh copied'
+      else
+        echo '[!] Error: build.sh not found'
+        exit 1
+      fi
+
       echo '[✓] Ready to build'
       echo ''
 

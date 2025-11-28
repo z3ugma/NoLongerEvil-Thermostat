@@ -6,15 +6,9 @@ yarn-error.log*
 pnpm-debug.log*
 .pnpm-store/
 
-# Package manager lockfiles
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
-
 # Build outputs and distribution
 dist/
 dist-electron/
-build/
 out/
 .next/
 *.app
@@ -28,6 +22,7 @@ out/
 
 # Environment variables
 .env
+env.local
 .env.local
 .env.production
 .env.development
@@ -69,16 +64,6 @@ certificates/
 **/certs/**
 **/certificates/**
 
-# Entitlements and signing configs
-*.entitlements
-*.plist
-!Info.plist
-forge.config.js
-sign*.js
-notarize*.js
-sign*.sh
-notarize*.sh
-
 # Credentials and secrets
 credentials*.json
 secrets*.json
@@ -90,6 +75,7 @@ tmp/
 temp/
 *.tmp
 .cache/
+firmware_build.log
 
 # Electron build artifacts
 out/
@@ -131,3 +117,6 @@ coverage/
 # Next.js
 .next/
 next-env.d.ts
+
+# Firmware build artifacts
+firmware/builder/firmware/

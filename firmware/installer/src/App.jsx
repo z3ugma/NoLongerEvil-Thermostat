@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import WelcomeScreen from './components/WelcomeScreen';
 import SystemCheck from './components/SystemCheck';
+import GenerationSelect from './components/GenerationSelect';
 import InstallScreen from './components/InstallScreen';
 import SuccessScreen from './components/SuccessScreen';
 import ErrorScreen from './components/ErrorScreen';
@@ -8,6 +9,7 @@ import ErrorScreen from './components/ErrorScreen';
 const SCREENS = {
   WELCOME: 'welcome',
   SYSTEM_CHECK: 'system_check',
+  GENERATION_SELECT: 'generation_select',
   INSTALL: 'install',
   SUCCESS: 'success',
   ERROR: 'error',
@@ -16,6 +18,8 @@ const SCREENS = {
 function App() {
   const [currentScreen, setCurrentScreen] = useState(SCREENS.WELCOME);
   const [systemInfo, setSystemInfo] = useState(null);
+  const [generation, setGeneration] = useState(null);
+  const [customFiles, setCustomFiles] = useState(null);
   const [error, setError] = useState(null);
   const [platform, setPlatform] = useState(null);
 
@@ -68,18 +72,31 @@ function App() {
 
         {currentScreen === SCREENS.SYSTEM_CHECK && (
           <SystemCheck
-            onNext={(data) => handleNext(SCREENS.INSTALL, data)}
+            onNext={(data) => handleNext(SCREENS.GENERATION_SELECT, data)}
             onError={handleError}
             onBack={() => setCurrentScreen(SCREENS.WELCOME)}
+          />
+        )}
+
+        {currentScreen === SCREENS.GENERATION_SELECT && (
+          <GenerationSelect
+            onNext={(config) => {
+              setGeneration(config.generation);
+              setCustomFiles(config.customFiles);
+              handleNext(SCREENS.INSTALL);
+            }}
+            onBack={() => setCurrentScreen(SCREENS.SYSTEM_CHECK)}
           />
         )}
 
         {currentScreen === SCREENS.INSTALL && (
           <InstallScreen
             systemInfo={systemInfo}
+            generation={generation}
+            customFiles={customFiles}
             onSuccess={() => handleNext(SCREENS.SUCCESS)}
             onError={handleError}
-            onBack={() => setCurrentScreen(SCREENS.SYSTEM_CHECK)}
+            onBack={() => setCurrentScreen(SCREENS.GENERATION_SELECT)}
           />
         )}
 
