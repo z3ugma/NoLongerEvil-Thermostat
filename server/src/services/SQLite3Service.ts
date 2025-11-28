@@ -848,8 +848,15 @@ export class SQLite3Service extends AbstractDeviceStateManager {
     }
 
     try {
-      const integrations =null; // await db.action('integrations_actions:getAllEnabledMqttIntegrationsSecure' as any, {});
-      return integrations || [];
+      // Query enabled MQTT integrations directly
+      const sql = `SELECT userId, config FROM integrations WHERE type = 'mqtt' AND enabled = 1`;
+      const rows = await db.all<Array<{ userId: string; config: string }>>(sql);
+      
+      // Parse JSON config for each integration
+      return rows.map(row => ({
+        userId: row.userId,
+        config: JSON.parse(row.config)
+      }));
     } catch (error) {
       console.error('[SQLite3] Failed to fetch enabled MQTT integrations:', error);
       return [];
