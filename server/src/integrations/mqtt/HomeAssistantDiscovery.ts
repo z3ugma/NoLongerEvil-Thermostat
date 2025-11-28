@@ -13,7 +13,7 @@
 
 import * as mqtt from 'mqtt';
 import type { DeviceStateService } from '../../services/DeviceStateService';
-import { resolveDeviceName, getDeviceTemperatureScale } from './helpers';
+import { resolveDeviceName, getDeviceTemperatureScale, nestModeToHA } from './helpers';
 
 /**
  * Build Home Assistant discovery payload for climate entity (main thermostat control)
@@ -22,9 +22,10 @@ export function buildClimateDiscovery(
   serial: string,
   deviceName: string,
   topicPrefix: string,
-  temperatureUnit: 'C' | 'F'
+  temperatureUnit: 'C' | 'F',
+  currentMode: string = 'off'
 ): any {
-  return {
+  const config: any = {
     // Unique identifier
     unique_id: `nolongerevil_${serial}`,
 
@@ -62,18 +63,24 @@ export function buildClimateDiscovery(
 
     // Current humidity
     current_humidity_topic: `${topicPrefix}/${serial}/ha/current_humidity`,
+  };
 
-    // Target temperature (heat/cool mode)
-    temperature_command_topic: `${topicPrefix}/${serial}/ha/target_temperature/set`,
-    temperature_state_topic: `${topicPrefix}/${serial}/ha/target_temperature`,
+  // Conditionally add temperature topics based on mode
+  if (currentMode === 'heat_cool') {
+    // Range mode: only include high/low temperature topics
+    config.temperature_high_command_topic = `${topicPrefix}/${serial}/ha/target_temperature_high/set`;
+    config.temperature_high_state_topic = `${topicPrefix}/${serial}/ha/target_temperature_high`;
+    config.temperature_low_command_topic = `${topicPrefix}/${serial}/ha/target_temperature_low/set`;
+    config.temperature_low_state_topic = `${topicPrefix}/${serial}/ha/target_temperature_low`;
+  } else {
+    // Heat/cool/off mode: only include single temperature topic
+    config.temperature_command_topic = `${topicPrefix}/${serial}/ha/target_temperature/set`;
+    config.temperature_state_topic = `${topicPrefix}/${serial}/ha/target_temperature`;
+  }
 
-    // Target temperature high (auto mode)
-    temperature_high_command_topic: `${topicPrefix}/${serial}/ha/target_temperature_high/set`,
-    temperature_high_state_topic: `${topicPrefix}/${serial}/ha/target_temperature_high`,
-
-    // Target temperature low (auto mode)
-    temperature_low_command_topic: `${topicPrefix}/${serial}/ha/target_temperature_low/set`,
-    temperature_low_state_topic: `${topicPrefix}/${serial}/ha/target_temperature_low`,
+  // Add remaining common config
+  return {
+    ...config,
 
     // HVAC mode (heat, cool, heat_cool, off)
     mode_command_topic: `${topicPrefix}/${serial}/ha/mode/set`,
@@ -309,10 +316,14 @@ export async function publishThermostatDiscovery(
     const deviceName = await resolveDeviceName(serial, deviceState);
     const temperatureUnit = await getDeviceTemperatureScale(serial, deviceState);
 
-    console.log(`[HA Discovery] Publishing discovery for ${serial} (${deviceName}, ${temperatureUnit})`);
+    // Get current mode to conditionally build discovery payload
+    const sharedObj = await deviceState.get(serial, `shared.${serial}`);
+    const currentMode = nestModeToHA(sharedObj?.value?.target_temperature_type);
+
+    console.log(`[HA Discovery] Publishing discovery for ${serial} (${deviceName}, ${temperatureUnit}, mode: ${currentMode})`);
 
     // Climate entity (main thermostat control)
-    const climateConfig = buildClimateDiscovery(serial, deviceName, topicPrefix, temperatureUnit);
+    const climateConfig = buildClimateDiscovery(serial, deviceName, topicPrefix, temperatureUnit, currentMode);
     await publishDiscoveryMessage(
       client,
       `${discoveryPrefix}/climate/nest_${serial}/thermostat/config`,

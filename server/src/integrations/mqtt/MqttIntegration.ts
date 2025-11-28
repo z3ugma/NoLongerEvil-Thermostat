@@ -494,6 +494,16 @@ export class MqttIntegration extends BaseIntegration {
 
     try {
       console.log(`[MQTT:${this.userId}] Starting HA state publish for ${serial}...`);
+      
+      // Republish discovery to ensure configuration matches current mode
+      await publishThermostatDiscovery(
+        this.client,
+        serial,
+        this.deviceState,
+        this.config.topicPrefix!,
+        this.config.discoveryPrefix!
+      );
+      
       const prefix = this.config.topicPrefix!;
 
       // Get current device state
