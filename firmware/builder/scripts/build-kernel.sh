@@ -35,9 +35,16 @@ cd "$LINUX_DIR"
 echo "[→] Configuring with gtvhacker_defconfig..."
 make ARCH=arm distclean gtvhacker_defconfig
 
-echo "[→] Compiling kernel with embedded initramfs (this may take several minutes)..."
-make ARCH=arm CROSS_COMPILE=$TOOLCHAIN_PREFIX uImage \
-  -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+echo "[→] Patching kernel for Perl 5.22+ compatibility..."
+# Fix timeconst.pl for newer Perl versions (removes deprecated defined(@array) usage)
+if [ -f kernel/timeconst.pl ]; then
+  sed -i 's/defined(@\(.*\))/\@\1/' kernel/timeconst.pl
+  echo "[✓] Applied Perl compatibility patch"
+fi
+
+echo "[→] Compiling kernel with embedded initramfs (this will take several minutes)..."
+echo "[!] Note: Building without parallel jobs to avoid race conditions in old kernel Makefile"
+make ARCH=arm CROSS_COMPILE=$TOOLCHAIN_PREFIX uImage
 
 if [ -f arch/arm/boot/uImage ]; then
   echo "[→] Copying uImage to firmware directory..."

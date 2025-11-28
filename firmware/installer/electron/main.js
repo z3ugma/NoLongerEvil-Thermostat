@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const { checkSystem, installFirmware, detectDevice } = require('./usb-handler');
 const { installWinUSBDriver } = require('./windows-driver');
@@ -17,7 +17,7 @@ function createWindow() {
     minHeight: 700,
     center: true,
     title: 'No Longer Evil Thermostat Setup',
-    icon: path.join(__dirname, '../build/icon.png'),
+    icon: path.join(__dirname, '../build/appicon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -85,9 +85,11 @@ ipcMain.handle('detect-device', async () => {
 
 ipcMain.handle('install-firmware', async (event, options) => {
   try {
+    const generation = options?.generation || 'gen2';
+    const customFiles = options?.customFiles || null;
     const result = await installFirmware((progress) => {
       mainWindow.webContents.send('installation-progress', progress);
-    });
+    }, generation, customFiles);
     return result;
   } catch (error) {
     console.error('Installation error:', error);
@@ -98,15 +100,69 @@ ipcMain.handle('install-firmware', async (event, options) => {
 ipcMain.handle('install-libusb', async () => {
   const { exec } = require('child_process');
   const util = require('util');
+  const fs = require('fs');
   const execPromise = util.promisify(exec);
 
   try {
-    if (process.platform === 'darwin') {
-      const brewPath = process.arch === 'arm64' ? '/opt/homebrew/bin/brew' : '/usr/local/bin/brew';
-      await execPromise(`${brewPath} install libusb`);
-      return { success: true };
+    if (process.platform !== 'darwin') {
+      return { success: false, error: 'Only supported on macOS' };
     }
-    return { success: false, error: 'Only supported on macOS' };
+
+    // Find Homebrew installation
+    const possibleBrewPaths = [
+      '/opt/homebrew/bin/brew', // Apple Silicon
+      '/usr/local/bin/brew',    // Intel
+    ];
+
+    let brewPath = null;
+    for (const path of possibleBrewPaths) {
+      if (fs.existsSync(path)) {
+        brewPath = path;
+        break;
+      }
+    }
+
+    // If not found in standard locations, try to find via which
+    if (!brewPath) {
+      try {
+        const { stdout } = await execPromise('which brew');
+        brewPath = stdout.trim();
+      } catch (e) {
+        // which brew failed, brew not found
+      }
+    }
+
+    // If Homebrew not found, install it
+    if (!brewPath) {
+      try {
+        // Install Homebrew using official install script
+        await execPromise('/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"');
+
+        // Check standard locations again
+        for (const path of possibleBrewPaths) {
+          if (fs.existsSync(path)) {
+            brewPath = path;
+            break;
+          }
+        }
+
+        if (!brewPath) {
+          return {
+            success: false,
+            error: 'Homebrew installation completed but could not locate brew executable. Please restart the application.'
+          };
+        }
+      } catch (installError) {
+        return {
+          success: false,
+          error: `Failed to install Homebrew: ${installError.message}. Please install manually from https://brew.sh`
+        };
+      }
+    }
+
+    // Install libusb and pkg-config using found brew path
+    await execPromise(`${brewPath} install libusb pkg-config`);
+    return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -156,6 +212,34 @@ ipcMain.handle('install-windows-driver', async () => {
     return result;
   } catch (error) {
     console.error('Windows driver installation error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('select-firmware-file', async (event, fileType) => {
+  try {
+    const filters = [
+      { name: 'Binary Files', extensions: ['bin'] }
+    ];
+
+    // For uImage, also allow files without extension
+    if (fileType === 'uimage') {
+      filters.unshift({ name: 'uImage', extensions: ['*'] });
+    }
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: `Select ${fileType} firmware file`,
+      properties: ['openFile'],
+      filters: filters
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+
+    return { success: true, filePath: result.filePaths[0] };
+  } catch (error) {
+    console.error('File selection error:', error);
     return { success: false, error: error.message };
   }
 });

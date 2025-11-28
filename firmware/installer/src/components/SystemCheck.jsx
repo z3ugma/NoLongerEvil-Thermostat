@@ -55,8 +55,6 @@ function SystemCheck({ onNext, onError, onBack }) {
     return `${platformNames[platform] || platform} (${arch})`;
   };
 
-  const canProceed = systemInfo && systemInfo.ready && !checking;
-
   return (
     <div className="flex items-center justify-center min-h-full p-8">
       <div className="max-w-2xl w-full space-y-8">
@@ -280,7 +278,6 @@ function SystemCheck({ onNext, onError, onBack }) {
           </button>
           <button
             onClick={handleContinue}
-            disabled={!canProceed}
             className="btn-primary"
           >
             Continue to Installation
