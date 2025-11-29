@@ -29,6 +29,7 @@ import {
   nestModeToHA,
   haModeToNest,
   deriveHvacAction,
+  deriveFanMode,
   isDeviceAway,
   isFanRunning,
   isEcoActive,
@@ -324,8 +325,23 @@ export class MqttIntegration extends BaseIntegration {
           break;
 
         case 'fan_mode':
-          const fanActive = valueStr === 'on';
-          await this.updateDeviceValue(serial, deviceObj, 'fan_timer_active', fanActive);
+          if (valueStr === 'on') {
+            // Turn fan on: activate control state and set timer
+            // Set timeout to 60 minutes from now (3600 seconds)
+            const timeoutTimestamp = Math.floor(Date.now() / 1000) + 3600;
+            await this.updateDeviceFields(serial, deviceObj, {
+              fan_control_state: true,
+              fan_timer_active: true,
+              fan_timer_timeout: timeoutTimestamp,
+            });
+          } else {
+            // Turn fan off: deactivate control state and clear timer
+            await this.updateDeviceFields(serial, deviceObj, {
+              fan_control_state: false,
+              fan_timer_active: false,
+              fan_timer_timeout: 0,
+            });
+          }
           break;
 
         case 'preset':
@@ -345,6 +361,9 @@ export class MqttIntegration extends BaseIntegration {
       }
 
       console.log(`[MQTT:${this.userId}] HA command executed successfully`);
+
+      // Republish state to reflect the changes in Home Assistant
+      await this.publishHomeAssistantState(serial);
     } catch (error) {
       console.error(`[MQTT:${this.userId}] Failed to handle HA command:`, error);
     }
@@ -376,6 +395,23 @@ export class MqttIntegration extends BaseIntegration {
     const updatedObj = await this.deviceState.upsert(serial, objectKey, newRevision, newTimestamp, newValue);
     const notifyResult = this.subscriptionManager.notify(serial, objectKey, updatedObj);
     console.log(`[MQTT:${this.userId}] Notified ${notifyResult.notified} subscriber(s) for ${serial}/${objectKey}`);
+  }
+
+  /**
+   * Update multiple fields in device.{serial} atomically
+   */
+  private async updateDeviceFields(serial: string, currentObj: any, fields: Record<string, any>): Promise<void> {
+    const objectKey = `device.${serial}`;
+    const newValue = {
+      ...currentObj.value,
+      ...fields, // Merge all fields at once
+    };
+    const newRevision = currentObj.object_revision + 1;
+    const newTimestamp = Date.now();
+
+    const updatedObj = await this.deviceState.upsert(serial, objectKey, newRevision, newTimestamp, newValue);
+    const notifyResult = this.subscriptionManager.notify(serial, objectKey, updatedObj);
+    console.log(`[MQTT:${this.userId}] Notified ${notifyResult.notified} subscriber(s) for ${serial}/${objectKey} (${Object.keys(fields).length} fields updated)`);
   }
 
   /**
@@ -494,7 +530,7 @@ export class MqttIntegration extends BaseIntegration {
 
     try {
       console.log(`[MQTT:${this.userId}] Starting HA state publish for ${serial}...`);
-      
+
       // Republish discovery to ensure configuration matches current mode
       await publishThermostatDiscovery(
         this.client,
@@ -503,7 +539,7 @@ export class MqttIntegration extends BaseIntegration {
         this.config.topicPrefix!,
         this.config.discoveryPrefix!
       );
-      
+
       const prefix = this.config.topicPrefix!;
 
       // Get current device state
@@ -553,7 +589,8 @@ export class MqttIntegration extends BaseIntegration {
       console.log(`[MQTT:${this.userId}] HVAC action for ${serial}: ${action} (heater: ${shared.hvac_heater_state}, ac: ${shared.hvac_ac_state}, fan: ${shared.hvac_fan_state})`);
       await this.publish(`${prefix}/${serial}/ha/action`, action, { retain: true, qos: 0 });
 
-      const fanMode = device.fan_timer_active || device.fan_control_state ? 'on' : 'auto';
+      const fanMode = await deriveFanMode(serial, this.deviceState);
+      console.log(`[MQTT:${this.userId}] Fan mode for ${serial}: ${fanMode} (timer_timeout: ${device.fan_timer_timeout}, control_state: ${device.fan_control_state}, hvac_fan: ${shared.hvac_fan_state})`);
       await this.publish(`${prefix}/${serial}/ha/fan_mode`, fanMode, { retain: true, qos: 0 });
 
       const preset = await nestPresetToHA(serial, this.deviceState);

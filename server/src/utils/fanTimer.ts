@@ -4,15 +4,43 @@
  * Preserves active fan timer state when device sends stale updates.
  * Critical protocol requirement: if fan timer is active (timeout > now),
  * preserve all fan-related fields even if device doesn't include them.
+ * 
+ * UNLESS the device is explicitly turning the fan off.
  */
 
 import type { FanTimerState } from '../lib/types';
 
 /**
+ * Check if incoming value is explicitly turning off the fan
+ * This takes precedence over preservation logic
+ */
+export function isExplicitlyTurningOffFan(incomingValue: Record<string, any>): boolean {
+  // If fan_timer_timeout is explicitly set to 0, the device is turning off the fan
+  if ('fan_timer_timeout' in incomingValue && incomingValue.fan_timer_timeout === 0) {
+    return true;
+  }
+  
+  // If fan_control_state is explicitly set to false, the device is turning off the fan
+  if ('fan_control_state' in incomingValue && incomingValue.fan_control_state === false) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
  * Check if fan timer fields should be preserved
  * Returns true if existing state has active fan timer
  */
-export function shouldPreserveFanTimer(existingValue: Record<string, any>): boolean {
+export function shouldPreserveFanTimer(
+  existingValue: Record<string, any>,
+  incomingValue: Record<string, any>
+): boolean {
+  // Never preserve if device is explicitly turning off the fan
+  if (isExplicitlyTurningOffFan(incomingValue)) {
+    return false;
+  }
+
   const fanTimerTimeout = existingValue.fan_timer_timeout;
 
   if (typeof fanTimerTimeout !== 'number') {
@@ -44,7 +72,7 @@ export function preserveFanTimer(
   mergedValue: Record<string, any>,
   existingValue: Record<string, any>
 ): Record<string, any> {
-  if (!shouldPreserveFanTimer(existingValue)) {
+  if (!shouldPreserveFanTimer(existingValue, mergedValue)) {
     return mergedValue;
   }
 

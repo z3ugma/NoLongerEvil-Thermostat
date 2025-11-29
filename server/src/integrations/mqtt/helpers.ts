@@ -155,6 +155,50 @@ export function haModeToNest(haMode: string | undefined): string {
 }
 
 /**
+ * Derive fan mode from device state
+ * Returns: "on" or "auto"
+ */
+export async function deriveFanMode(
+  serial: string,
+  deviceState: DeviceStateService
+): Promise<string> {
+  try {
+    const sharedObj = await deviceState.get(serial, `shared.${serial}`);
+    const deviceObj = await deviceState.get(serial, `device.${serial}`);
+    const shared = sharedObj?.value || {};
+    const device = deviceObj?.value || {};
+
+    // Fan mode is "on" if:
+    // 1. Physical fan is running independently (hvac_fan_state from shared, but not heating/cooling)
+    // 2. Fan timer has time remaining (fan_timer_timeout > now)
+    // 3. Fan control is enabled (fan_control_state from device)
+    
+    const isHeatingOrCooling =
+      shared.hvac_heater_state ||
+      shared.hvac_heat_x2_state ||
+      shared.hvac_heat_x3_state ||
+      shared.hvac_aux_heater_state ||
+      shared.hvac_alt_heat_state ||
+      shared.hvac_ac_state ||
+      shared.hvac_cool_x2_state ||
+      shared.hvac_cool_x3_state;
+
+    // If fan is running but HVAC is also running, fan is in auto mode
+    const fanRunningWithHVAC = shared.hvac_fan_state && isHeatingOrCooling;
+    
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const hasFanTimer = typeof device.fan_timer_timeout === 'number' && device.fan_timer_timeout > nowSeconds;
+    
+    const isFanModeOn = (shared.hvac_fan_state && !fanRunningWithHVAC) || hasFanTimer || device.fan_control_state;
+    
+    return isFanModeOn ? 'on' : 'auto';
+  } catch (error) {
+    console.error(`[MQTT Helpers] Error deriving fan mode for ${serial}:`, error);
+    return 'auto';
+  }
+}
+
+/**
  * Derive HVAC action from device state
  * Returns: "off", "heating", "cooling", "fan", "idle"
  */
@@ -164,7 +208,9 @@ export async function deriveHvacAction(
 ): Promise<string> {
   try {
     const sharedObj = await deviceState.get(serial, `shared.${serial}`);
+    const deviceObj = await deviceState.get(serial, `device.${serial}`);
     const shared = sharedObj?.value || {};
+    const device = deviceObj?.value || {};
 
     const mode = shared.target_temperature_type || '';
     if (mode === 'off') {
@@ -192,7 +238,15 @@ export async function deriveHvacAction(
       return 'cooling';
     }
 
-    if (shared.hvac_fan_state) {
+    // Fan is running if:
+    // 1. Physical fan is on (hvac_fan_state from shared)
+    // 2. Fan timer has time remaining (fan_timer_timeout > now)
+    // 3. Fan control is enabled (fan_control_state from device)
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const hasFanTimer = typeof device.fan_timer_timeout === 'number' && device.fan_timer_timeout > nowSeconds;
+    const isFanRunning = shared.hvac_fan_state || hasFanTimer || device.fan_control_state;
+    
+    if (isFanRunning) {
       return 'fan';
     }
 
